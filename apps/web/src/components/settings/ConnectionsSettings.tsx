@@ -43,6 +43,7 @@ import { LocalEnvironmentSetting } from "./LocalEnvironmentSetting";
 import { searchableSetting } from "./settingsSearch";
 import { ConnectDeviceApprovalSettings } from "./ConnectDeviceApprovalSettings";
 import { EnvironmentIconMenu } from "./EnvironmentIconPicker";
+import { EnvironmentNameDialog, EnvironmentRenameMenuItem } from "./EnvironmentNameDialog";
 import { FoldedSettingsSection } from "./FoldedSettingsSection";
 import { LinkedEnvironmentsSettings } from "./LinkedEnvironmentsSettings";
 import { usePeerLinkHosts } from "~/state/peerLinks";
@@ -318,6 +319,7 @@ function ConnectionsSettingsContent({
     ...(primaryEnvironment ? [primaryEnvironment] : []),
     ...savedEnvironments.filter((environment) => environment.entry.enabled),
   ].filter((environment) => environment.connection.phase !== "unsupported");
+  const [renameOpen, setRenameOpen] = useState(false);
   const [desktopServerExposureMutationError, setDesktopServerExposureMutationError] = useState<
     string | null
   >(null);
@@ -1215,26 +1217,39 @@ function ConnectionsSettingsContent({
             }
             headerAction={
               accessEnvironmentId !== null ? (
-                <Menu>
-                  <MenuTrigger
-                    render={
-                      <Button
-                        type="button"
-                        variant="ghost-muted"
-                        size="icon-xs"
-                        aria-label="More actions for this machine"
+                <>
+                  <Menu>
+                    <MenuTrigger
+                      render={
+                        <Button
+                          type="button"
+                          variant="ghost-muted"
+                          size="icon-xs"
+                          aria-label="More actions for this machine"
+                        />
+                      }
+                    >
+                      <EllipsisIcon className="size-3.5" />
+                    </MenuTrigger>
+                    <MenuPopup align="end">
+                      <EnvironmentRenameMenuItem
+                        environmentId={accessEnvironmentId}
+                        serverConfig={accessServerConfig}
+                        onSelect={() => setRenameOpen(true)}
                       />
-                    }
-                  >
-                    <EllipsisIcon className="size-3.5" />
-                  </MenuTrigger>
-                  <MenuPopup align="end">
-                    <EnvironmentIconMenu
-                      environmentId={accessEnvironmentId}
-                      serverConfig={accessServerConfig}
-                    />
-                  </MenuPopup>
-                </Menu>
+                      <EnvironmentIconMenu
+                        environmentId={accessEnvironmentId}
+                        serverConfig={accessServerConfig}
+                      />
+                    </MenuPopup>
+                  </Menu>
+                  <EnvironmentNameDialog
+                    environmentId={accessEnvironmentId}
+                    serverConfig={accessServerConfig}
+                    open={renameOpen}
+                    onOpenChange={setRenameOpen}
+                  />
+                </>
               ) : null
             }
           >

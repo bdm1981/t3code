@@ -5,6 +5,7 @@ import {
   ORCHESTRATION_PROTOCOL_VERSION,
   type ExecutionEnvironmentDescriptor,
   type ServerConfig,
+  type ServerConfigStreamEvent,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
 import * as Context from "effect/Context";
@@ -168,6 +169,7 @@ const makeHarness = Effect.fn("TestEnvironmentRegistry.makeHarness")(function* (
     ) => Effect.Effect<ConnectionBlockedError | undefined>;
     readonly initialDisabled?: ReadonlyArray<EnvironmentId>;
     readonly directEndpoints?: ServerConfig["directEndpoints"];
+    readonly serverConfigEvents?: ReadonlyArray<ServerConfigStreamEvent>;
   },
 ) {
   const storedTargets = yield* Ref.make<ReadonlyArray<ConnectionTarget>>(initialTargets);
@@ -418,13 +420,18 @@ const makeHarness = Effect.fn("TestEnvironmentRegistry.makeHarness")(function* (
               ? Effect.die(new Error("Config is not used by registry tests."))
               : Effect.succeed({ directEndpoints: options.directEndpoints } as ServerConfig),
           subscribeServerConfig: () =>
-            options?.directEndpoints === undefined
-              ? Stream.never
-              : Stream.make({
-                  version: 1 as const,
-                  type: "snapshot" as const,
-                  config: { directEndpoints: options.directEndpoints } as ServerConfig,
-                }),
+            options?.serverConfigEvents !== undefined
+              ? Stream.concat(Stream.fromIterable(options.serverConfigEvents), Stream.never)
+              : options?.directEndpoints === undefined
+                ? Stream.never
+                : Stream.make({
+                    version: 1 as const,
+                    type: "snapshot" as const,
+                    config: {
+                      directEndpoints: options.directEndpoints,
+                      environment: { label: target.label },
+                    } as ServerConfig,
+                  }),
           ready: Effect.void,
           probe: Effect.void,
           inboundFrames: Effect.succeed(0),
@@ -2315,6 +2322,55 @@ describe("EnvironmentRegistry routes", () => {
           learned: true,
           httpBaseUrl,
         });
+      }).pipe(Effect.provide(harness.layer), Effect.scoped);
+    }),
+  );
+
+  it.effect.each([
+    { name: "Studio", events: [null, "Studio"], expected: "Studio" },
+    { name: "cleared", events: ["Studio", null], expected: "Mac Studio (2)" },
+  ])("saves the name the environment reports on every route ($name)", ({ events, expected }) =>
+    Effect.gen(function* () {
+      const relay = new RelayConnectionTarget({ ...RELAY_TARGET, label: "Old name" });
+      const lan = new BearerConnectionTarget({ ...LAN_TARGET, label: "Old name" });
+      const settings = (environmentName: string | null) =>
+        ({ environmentName }) as ServerConfig["settings"] & {};
+      const [initialName, updatedName] = events;
+      const harness = yield* makeHarness(
+        [lan, relay],
+        [LAN_PROFILE],
+        [[LAN_TARGET.connectionId, BEARER_CREDENTIAL]],
+        {
+          serverConfigEvents: [
+            {
+              version: 1,
+              type: "snapshot",
+              config: {
+                environment: { label: "Mac Studio (2)" },
+                settings: settings(initialName ?? null),
+              } as ServerConfig,
+            },
+            {
+              version: 1,
+              type: "settingsUpdated",
+              payload: { settings: settings(updatedName ?? null) },
+            },
+          ],
+        },
+      );
+      yield* Effect.gen(function* () {
+        const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
+        yield* registry.start;
+        yield* SubscriptionRef.changes(registry.entries).pipe(
+          Stream.filter(
+            (entries) => entries.get(LAN_TARGET.environmentId)?.target.label === expected,
+          ),
+          Stream.runHead,
+        );
+        expect((yield* Ref.get(harness.storedTargets)).map((target) => target.label)).toEqual([
+          expected,
+          expected,
+        ]);
       }).pipe(Effect.provide(harness.layer), Effect.scoped);
     }),
   );

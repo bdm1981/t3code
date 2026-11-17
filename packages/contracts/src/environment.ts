@@ -165,6 +165,8 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   /** projects.listIgnoredFiles honors `query`. Older servers ignore it. */
   ignoredFileSearch: Schema.optionalKey(Schema.Boolean),
   environmentIcon: Schema.optionalKey(Schema.Boolean),
+  /** Server keeps the `environmentName` setting; older servers drop it. */
+  environmentName: Schema.optionalKey(Schema.Boolean),
   desktopAppUpdate: Schema.optionalKey(Schema.Boolean),
   /** The desktop app switches update tracks when a server update request names one. */
   desktopAppChannelSwitch: Schema.optionalKey(Schema.Boolean),

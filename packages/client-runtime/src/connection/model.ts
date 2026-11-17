@@ -47,6 +47,22 @@ export const ConnectionTarget = Schema.Union([
 ]);
 export type ConnectionTarget = typeof ConnectionTarget.Type;
 
+export function withConnectionTargetLabel(
+  target: ConnectionTarget,
+  label: string,
+): ConnectionTarget {
+  switch (target._tag) {
+    case "PrimaryConnectionTarget":
+      return new PrimaryConnectionTarget({ ...target, label });
+    case "BearerConnectionTarget":
+      return new BearerConnectionTarget({ ...target, label });
+    case "RelayConnectionTarget":
+      return new RelayConnectionTarget({ ...target, label });
+    case "SshConnectionTarget":
+      return new SshConnectionTarget({ ...target, label });
+  }
+}
+
 export const PersistedConnectionTarget = Schema.Union([
   BearerConnectionTarget,
   RelayConnectionTarget,

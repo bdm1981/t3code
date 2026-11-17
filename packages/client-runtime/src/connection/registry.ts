@@ -33,7 +33,7 @@ import type {
   PersistedConnectionTarget,
   SupervisorConnectionState,
 } from "./model.ts";
-import { ConnectionBlockedError } from "./model.ts";
+import { ConnectionBlockedError, withConnectionTargetLabel } from "./model.ts";
 import * as Persistence from "../platform/persistence.ts";
 import * as EnvironmentSupervisor from "./supervisor.ts";
 import * as ConnectionDriver from "./driver.ts";
@@ -368,6 +368,7 @@ export const make = Effect.gen(function* () {
             // before an enabled, compatible environment starts connecting.
             initiallyDesired: entry.enabled && entry.unsupportedReason === undefined,
             learnRoutes: (input) => learnRoutes({ environmentId, ...input }),
+            learnLabel: (label) => learnLabel({ environmentId, label }),
           }).pipe(
             Effect.provideService(Connectivity.Connectivity, connectivity),
             Effect.provideService(ConnectionDriver.ConnectionDriver, driver),
@@ -915,6 +916,22 @@ export const make = Effect.gen(function* () {
   const allowInsecureRoutes =
     typeof globalThis.location === "undefined" || globalThis.location.protocol !== "https:";
 
+  /** Unlike `installEntryLocked`, keeps the running supervisor and its connection. */
+  const publishLearnedEntryLocked = Effect.fn("EnvironmentRegistry.publishLearnedEntryLocked")(
+    function* (next: ConnectionCatalogEntry) {
+      const environmentId = next.target.environmentId;
+      const lease = (yield* SubscriptionRef.get(serviceScopes)).get(environmentId);
+      if (lease !== undefined) {
+        yield* SubscriptionRef.update(serviceScopes, (current) =>
+          new Map(current).set(environmentId, { ...lease, entry: next }),
+        );
+      }
+      yield* SubscriptionRef.update(entries, (current) =>
+        new Map(current).set(environmentId, next),
+      );
+    },
+  );
+
   /**
    * Learned routes reuse the active route's credential, so they do not revoke pull request routing
    * trust the way a newly paired address does.
@@ -957,20 +974,48 @@ export const make = Effect.gen(function* () {
           yield* profiles.put(profile);
         }
         yield* registrations.setRoutes(input.environmentId, persistedRoutes(next));
-        const lease = (yield* SubscriptionRef.get(serviceScopes)).get(input.environmentId);
-        if (lease !== undefined) {
-          yield* SubscriptionRef.update(serviceScopes, (current) =>
-            new Map(current).set(input.environmentId, { ...lease, entry: next }),
-          );
-        }
-        yield* SubscriptionRef.update(entries, (current) =>
-          new Map(current).set(input.environmentId, next),
-        );
+        yield* publishLearnedEntryLocked(next);
         return Option.some(next);
       }),
     ).pipe(
       Effect.catch((error) =>
         Effect.logWarning("Could not save routes learned from the environment.", {
+          environmentId: input.environmentId,
+          error,
+        }).pipe(Effect.as(Option.none<ConnectionCatalogEntry>())),
+      ),
+    );
+  });
+
+  /** Follows the name the environment reports, so a rename on the host reaches every saved route. */
+  const learnLabel = Effect.fn("EnvironmentRegistry.learnLabel")(function* (input: {
+    readonly environmentId: EnvironmentId;
+    readonly label: string;
+  }) {
+    return yield* withLeaseLock(
+      input.environmentId,
+      Effect.gen(function* () {
+        const entry = (yield* SubscriptionRef.get(entries)).get(input.environmentId);
+        if (entry === undefined || entry.target.label === input.label) {
+          return Option.none<ConnectionCatalogEntry>();
+        }
+        const next = entryWithRoutes(
+          entry,
+          connectionRoutes(entry).map((route) => ({
+            ...route,
+            target: withConnectionTargetLabel(route.target, input.label),
+          })),
+        );
+        // The host rebuilds platform entries on every launch, so only user entries are saved.
+        if (!(yield* Ref.get(platformEnvironmentIds)).has(input.environmentId)) {
+          yield* registrations.setRoutes(input.environmentId, persistedRoutes(next));
+        }
+        yield* publishLearnedEntryLocked(next);
+        return Option.some(next);
+      }),
+    ).pipe(
+      Effect.catch((error) =>
+        Effect.logWarning("Could not save the name reported by the environment.", {
           environmentId: input.environmentId,
           error,
         }).pipe(Effect.as(Option.none<ConnectionCatalogEntry>())),

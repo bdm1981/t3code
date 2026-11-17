@@ -765,6 +765,13 @@ export function resolveEnvironmentMachineKind(
   return config?.settings?.environmentIcon ?? config?.environment.platform.machine ?? "server";
 }
 
+export function resolveEnvironmentLabel(config: {
+  readonly environment: Pick<ExecutionEnvironmentDescriptor, "label">;
+  readonly settings?: Pick<ServerSettings, "environmentName">;
+}): string {
+  return config.settings?.environmentName ?? config.environment.label;
+}
+
 const ServerUpsertKeybindingReplaceTarget = Schema.Struct({
   key: KeybindingValue,
   command: KeybindingCommand,

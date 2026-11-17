@@ -1,3 +1,4 @@
+import { resolveEnvironmentLabel } from "@t3tools/contracts";
 import { withRelayClientTracing } from "@t3tools/shared/relayTracing";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
@@ -163,6 +164,7 @@ export interface EnvironmentSupervisorOptions {
     readonly activeRoute: ConnectionRoute;
     readonly reported: ReadonlyArray<ReportedEndpoint>;
   }) => Effect.Effect<Option.Option<ConnectionCatalogEntry>>;
+  readonly learnLabel?: (label: string) => Effect.Effect<Option.Option<ConnectionCatalogEntry>>;
 }
 
 function retryDelayMs(failureCount: number, random: number): number {
@@ -386,6 +388,36 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
             yield* requestBetterRouteCheck(lease);
           }
         }),
+      ),
+      Effect.ignoreCause({ log: true }),
+    );
+  });
+
+  const learnLabelFrom = Effect.fnUntraced(function* (
+    learn: NonNullable<EnvironmentSupervisorOptions["learnLabel"]>,
+    lease: ConnectedLease,
+  ) {
+    yield* lease.session.subscribeServerConfig().pipe(
+      // Settings updates carry the name but not the host's own label, so keep the last snapshot's.
+      Stream.scan(
+        (): Parameters<typeof resolveEnvironmentLabel>[0] | null => null,
+        (current, event) => {
+          if (event.type === "snapshot") return event.config;
+          if (event.type === "settingsUpdated" && current !== null) {
+            return { ...current, settings: event.payload.settings };
+          }
+          return current;
+        },
+      ),
+      Stream.filter((config) => config !== null),
+      Stream.map(resolveEnvironmentLabel),
+      Stream.changes,
+      Stream.runForEach((label) =>
+        learn(label).pipe(
+          Effect.flatMap((updated) =>
+            Option.isSome(updated) ? Ref.set(currentEntry, updated.value) : Effect.void,
+          ),
+        ),
       ),
       Effect.ignoreCause({ log: true }),
     );
@@ -1079,6 +1111,9 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     yield* SubscriptionRef.set(session, Option.some(connectedLease.session));
     if (options?.learnRoutes !== undefined) {
       yield* learnRoutesFrom(options.learnRoutes, connectedLease).pipe(Effect.forkScoped);
+    }
+    if (options?.learnLabel !== undefined) {
+      yield* learnLabelFrom(options.learnLabel, connectedLease).pipe(Effect.forkScoped);
     }
     yield* setState({
       desired: true,

@@ -28,6 +28,7 @@ import { cn } from "../../lib/utils";
 import { SettingsRow } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 import { EnvironmentIconMenu } from "./EnvironmentIconPicker";
+import { EnvironmentNameDialog, EnvironmentRenameMenuItem } from "./EnvironmentNameDialog";
 import { EnvironmentRoutesList } from "./EnvironmentRoutesList";
 import {
   ConnectionDiagnosisPanel,
@@ -120,6 +121,7 @@ export function SavedBackendListRow({
   onAddRoute,
 }: SavedBackendListRowProps) {
   const [routesOpen, setRoutesOpen] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
   const [permissionsOpen, setPermissionsOpen] = useState(false);
   const [diagnosisOpen, setDiagnosisOpen] = useState(false);
   const environmentId = environment.environmentId;
@@ -407,6 +409,11 @@ export function SavedBackendListRow({
           <EllipsisIcon className="size-3.5" />
         </MenuTrigger>
         <MenuPopup align="end">
+          <EnvironmentRenameMenuItem
+            environmentId={environmentId}
+            serverConfig={environment.serverConfig}
+            onSelect={() => setRenameOpen(true)}
+          />
           <EnvironmentIconMenu
             environmentId={environmentId}
             serverConfig={environment.serverConfig}
@@ -427,6 +434,12 @@ export function SavedBackendListRow({
           </MenuItem>
         </MenuPopup>
       </Menu>
+      <EnvironmentNameDialog
+        environmentId={environmentId}
+        serverConfig={environment.serverConfig}
+        open={renameOpen}
+        onOpenChange={setRenameOpen}
+      />
     </EnvironmentRow>
   );
 }
